@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disaster Relief Vehicle Loader</title>
+<style>
+:root{--bg:#f3f5f2;--card:#fff;--ink:#1d2a26;--mute:#5d6b66;--line:#d5dcd7;--accent:#0b6e5f;--warn:#b4442b}
+@media (prefers-color-scheme:dark){:root{--bg:#141a18;--card:#1d2523;--ink:#e6ede9;--mute:#9aa8a2;--line:#33403c;--accent:#4fc3ad;--warn:#e8826a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Trebuchet MS","Segoe UI",sans-serif}
+main{max-width:1050px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 8px}
+p.sub{color:var(--mute);margin:0 0 16px}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px}
+th,td{padding:5px 6px;text-align:left;border-bottom:1px solid var(--line);font-size:14px}
+th{color:var(--mute);font-weight:600}
+input,select{width:100%;min-width:56px;padding:5px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+button{padding:7px 14px;border:1px solid var(--accent);background:var(--card);color:var(--accent);border-radius:5px;font:inherit;cursor:pointer}
+button.main{background:var(--accent);color:var(--bg);font-weight:700}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.bar{display:flex;height:22px;background:var(--bg);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:3px 0 8px}
+.bar span{height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:13px;margin:8px 0}
+.legend i{display:inline-block;width:12px;height:12px;margin-right:4px;border-radius:2px;vertical-align:-1px}
+.kpi{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 10px;font-size:14px}
+.kpi b{font-size:17px}
+.good{color:var(--accent);font-weight:700}.bad{color:var(--warn);font-weight:700}
+small{color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>Disaster Relief Vehicle Loader</h1>
+<p class="sub">Enter vehicles, relief items and destinations. The greedy loader picks the most valuable items that fit weight and volume limits, then compares itself with random loading.</p>
+
+<div class="row" style="margin:0 0 12px">
+  <label>Load scenario:&nbsp;<select id="scn" style="width:auto"></select></label>
+</div>
+
+<section><b>Vehicles</b>
+<table id="tV"></table><div class="row"><button onclick="addRow('vehicles')">Add vehicle</button></div></section>
+
+<section><b>Relief items</b> <small>(priority 1-10; need per person = units one person requires)</small>
+<table id="tI"></table><div class="row"><button onclick="addRow('items')">Add item</button></div></section>
+
+<section><b>Destinations</b> <small>(urgency 1-5)</small>
+<table id="tD"></table><div class="row"><button onclick="addRow('dests')">Add destination</button></div></section>
+
+<div class="row"><button class="main" onclick="run()">Optimize loading</button>
+<button onclick="runTests()">Run all scenario tests</button></div>
+
+<div id="out"></div>
+<div id="tests"></div>
+
+<h2>How the algorithm works</h2>
+<section><small>
+1. Each destination gets a score = urgency x people / (1 + distance/100). Vehicles are assigned one by one to the destination with the highest score per vehicle already sent there.<br>
+2. Every item unit has a value = priority&sup2; x destination urgency (squaring makes water and medicine dominate when space is short).<br>
+3. Cost of one unit = its larger share of the vehicle's weight or volume limit. Items are sorted by value / cost (greedy for a multi-constraint bounded knapsack, O(n log n)).<br>
+4. Units are loaded in that order, never exceeding stock, the destination's remaining need, or either capacity.<br>
+5. The baseline loads items in random order with the same limits and the same vehicle-to-destination assignment, averaged over 300 runs.
+</small></section>
+</main>
+
+<script>
+const SCEN={
+Flood:{vehicles:[{name:"Truck 1",w:3000,v:20},{name:"Truck 2",w:2000,v:14},{name:"Van 1",w:800,v:6}],
+items:[{name:"Drinking water pack",w:12,vol:.02,qty:500,pri:10,per:.5},{name:"Medicine kit",w:5,vol:.01,qty:150,pri:10,per:.1},{name:"Food pack",w:8,vol:.02,qty:400,pri:9,per:.5},{name:"Blanket",w:2,vol:.03,qty:300,pri:6,per:.5},{name:"Clothing bundle",w:3,vol:.04,qty:200,pri:4,per:.3},{name:"Emergency equipment",w:25,vol:.15,qty:20,pri:7,per:.01}],
+dests:[{name:"Flood camp A",ppl:300,dist:40,urg:5},{name:"Village B",ppl:150,dist:90,urg:3}]},
+Earthquake:{vehicles:[{name:"Truck 1",w:2500,v:16},{name:"Truck 2",w:2500,v:16}],
+items:[{name:"Drinking water pack",w:12,vol:.02,qty:300,pri:10,per:.4},{name:"Medicine kit",w:5,vol:.01,qty:200,pri:10,per:.2},{name:"Food pack",w:8,vol:.02,qty:250,pri:8,per:.4},{name:"Tent",w:15,vol:.12,qty:120,pri:8,per:.2},{name:"Rescue tools",w:30,vol:.1,qty:40,pri:9,per:.05},{name:"Blanket",w:2,vol:.03,qty:300,pri:5,per:.5}],
+dests:[{name:"Collapsed town",ppl:400,dist:60,urg:5},{name:"Hill settlement",ppl:120,dist:150,urg:4},{name:"Relief camp",ppl:200,dist:20,urg:2}]},
+Cyclone:{vehicles:[{name:"Truck 1",w:1800,v:12},{name:"Van 1",w:700,v:5},{name:"Van 2",w:700,v:5}],
+items:[{name:"Drinking water pack",w:12,vol:.02,qty:200,pri:10,per:.5},{name:"Medicine kit",w:5,vol:.01,qty:80,pri:10,per:.1},{name:"Dry food pack",w:6,vol:.02,qty:300,pri:9,per:.5},{name:"Tarpaulin",w:4,vol:.02,qty:150,pri:7,per:.2},{name:"Clothing bundle",w:3,vol:.04,qty:200,pri:3,per:.3},{name:"Generator",w:40,vol:.2,qty:10,pri:6,per:.01}],
+dests:[{name:"Coastal village",ppl:250,dist:70,urg:5},{name:"Island hamlet",ppl:90,dist:110,urg:4}]}
+};
+const COL=["#0b6e5f","#d17a22","#3f6fb5","#b4442b","#7b5ea7","#8a8f2a","#c2557f","#4a4a4a","#2a9d8f","#e9c46a"];
+let S=null;
+const clone=o=>JSON.parse(JSON.stringify(o));
+const SCHEMA={
+ vehicles:[["name","Name","text"],["w","Max weight (kg)","number"],["v","Capacity (m3)","number"]],
+ items:[["name","Item","text"],["w","Weight/unit (kg)","number"],["vol","Volume/unit (m3)","number"],["qty","Quantity","number"],["pri","Priority","number"],["per","Need per person","number"]],
+ dests:[["name","Destination","text"],["ppl","People","number"],["dist","Distance (km)","number"],["urg","Urgency","number"]]};
+const TBL={vehicles:"tV",items:"tI",dests:"tD"};
+
+const sel=document.getElementById("scn");
+Object.keys(SCEN).forEach(k=>sel.add(new Option(k,k)));
+sel.onchange=()=>{S=clone(SCEN[sel.value]);draw();};
+
+function draw(){
+ for(const k in TBL){
+  let h="<tr>"+SCHEMA[k].map(c=>`<th>${c[1]}</th>`).join("")+"<th></th></tr>";
+  S[k].forEach((r,i)=>{h+="<tr>"+SCHEMA[k].map(c=>`<td><input type="${c[2]}" step="any" min="0" value="${r[c[0]]}" aria-label="${c[1]}" onchange="setV('${k}',${i},'${c[0]}',this.value,'${c[2]}')"></td>`).join("")+`<td><button onclick="delRow('${k}',${i})" aria-label="Remove row">x</button></td></tr>`;});
+  document.getElementById(TBL[k]).innerHTML=h;
+ }
+}
+function setV(k,i,f,v,t){S[k][i][f]=t==="number"?Math.max(0,parseFloat(v)||0):v;}
+function delRow(k,i){S[k].splice(i,1);draw();}
+function addRow(k){const r={};SCHEMA[k].forEach(c=>r[c[0]]=c[2]==="text"?"New":1);S[k].push(r);draw();}
+
+/* ---------- core algorithm ---------- */
+function solve(D,mode){
+ const stock=D.items.map(i=>i.qty);
+ const need=D.dests.map(d=>D.items.map(i=>Math.ceil(d.ppl*i.per)));
+ const got=D.dests.map(()=>D.items.map(()=>0));
+ const sent=D.dests.map(()=>0);
+ const dScore=d=>d.urg*d.ppl/(1+d.dist/100);
+ const vs=D.vehicles.map((v,idx)=>({v,idx})).sort((a,b)=>b.v.w-a.v.w);
+ const res=[];
+ vs.forEach(({v})=>{
+  // pick destination with biggest score per vehicle already sent and some need left
+  let best=-1,bs=-1;
+  D.dests.forEach((d,di)=>{
+   const left=D.items.some((it,ii)=>need[di][ii]-got[di][ii]>0&&stock[ii]>0);
+   const s=dScore(d)/(1+sent[di]);
+   if(left&&s>bs){bs=s;best=di;}
+  });
+  if(best<0){res.push({v,dest:-1,lines:[],W:0,V:0,score:0});return;}
+  sent[best]++;
+  const d=D.dests[best];
+  const unit=D.items.map((it,ii)=>({ii,val:it.pri*it.pri*d.urg,cost:Math.max(it.w/v.w,it.vol/v.v)}));
+  let order=unit.slice();
+  if(mode==="greedy")order.sort((a,b)=>b.val/b.cost-a.val/a.cost);
+  else for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+  let W=0,V=0,score=0;const lines=[];
+  order.forEach(o=>{
+   const it=D.items[o.ii];
+   const q=Math.min(stock[o.ii],need[best][o.ii]-got[best][o.ii],
+     it.w>0?Math.floor((v.w-W+1e-9)/it.w):1e9,it.vol>0?Math.floor((v.v-V+1e-9)/it.vol):1e9);
+   if(q>0){stock[o.ii]-=q;got[best][o.ii]+=q;W+=q*it.w;V+=q*it.vol;score+=q*o.val;
+    lines.push({ii:o.ii,q,w:q*it.w,vol:q*it.vol,val:q*o.val});}
+  });
+  res.push({v,dest:best,lines,W,V,score});
+ });
+ // metrics
+ let cov=0,pairs=0,essN=0,essT=0;
+ D.dests.forEach((d,di)=>D.items.forEach((it,ii)=>{
+  if(need[di][ii]>0){const c=Math.min(1,got[di][ii]/need[di][ii]);cov+=c;pairs++;
+   if(it.pri>=9){essN+=c;essT++;}}}));
+ const capW=D.vehicles.reduce((a,v)=>a+v.w,0),capV=D.vehicles.reduce((a,v)=>a+v.v,0);
+ const usedW=res.reduce((a,r)=>a+r.W,0),usedV=res.reduce((a,r)=>a+r.V,0);
+ return{res,got,need,
+  score:res.reduce((a,r)=>a+r.score,0),
+  cov:pairs?cov/pairs:0,ess:essT?essN/essT:0,
+  util:Math.max(capW?usedW/capW:0,capV?usedV/capV:0)};
+}
+function avgRandom(D,n=300){
+ const t={score:0,cov:0,ess:0,util:0};
+ for(let i=0;i<n;i++){const r=solve(D,"random");t.score+=r.score;t.cov+=r.cov;t.ess+=r.ess;t.util+=r.util;}
+ for(const k in t)t[k]/=n;return t;
+}
+const pct=x=>(x*100).toFixed(1)+"%";
+
+/* ---------- output ---------- */
+function run(){
+ const D=S;
+ if(!D.vehicles.length||!D.items.length||!D.dests.length){alert("Add at least one vehicle, item and destination.");return;}
+ const g=solve(D,"greedy"),r=avgRandom(D);
+ const gain=r.score>0?((g.score-r.score)/r.score*100).toFixed(1)+"%":"n/a";
+ let h=`<h2>Optimized loading result</h2>`;
+ h+=`<section><div class="legend">${D.items.map((it,i)=>`<span><i style="background:${COL[i%COL.length]}"></i>${it.name}</span>`).join("")}</div></section>`;
+ g.res.forEach(x=>{
+  const v=x.v,dn=x.dest>=0?D.dests[x.dest].name:"No destination needs supplies";
+  const seg=(key,cap)=>x.lines.map(l=>`<span title="${D.items[l.ii].name}: ${l.q} units" style="width:${cap?l[key]/cap*100:0}%;background:${COL[l.ii%COL.length]}"></span>`).join("");
+  h+=`<section><b>${v.name}</b> &rarr; ${dn}
+  <div class="kpi"><span>Weight <b>${x.W.toFixed(1)}</b> / ${v.w} kg (left ${(v.w-x.W).toFixed(1)})</span>
+  <span>Volume <b>${x.V.toFixed(2)}</b> / ${v.v} m&sup3; (left ${(v.v-x.V).toFixed(2)})</span>
+  <span>Priority score <b>${x.score.toLocaleString()}</b></span></div>
+  Weight used<div class="bar">${seg("w",v.w)}</div>Volume used<div class="bar">${seg("vol",v.v)}</div>
+  <table><tr><th>Item</th><th>Qty loaded</th><th>Weight (kg)</th><th>Volume (m&sup3;)</th><th>Score</th><th>Covers destination need</th></tr>
+  ${x.lines.map(l=>`<tr><td>${D.items[l.ii].name}</td><td>${l.q}</td><td>${l.w.toFixed(1)}</td><td>${l.vol.toFixed(2)}</td><td>${l.val}</td><td>${x.dest>=0?pct(l.q/Math.max(1,g.need[x.dest][l.ii])):""}</td></tr>`).join("")||"<tr><td colspan=6>Nothing loaded</td></tr>"}</table></section>`;
+ });
+ h+=`<section><b>Overall resource coverage by destination</b><table><tr><th>Destination</th>${D.items.map(i=>`<th>${i.name}</th>`).join("")}</tr>
+ ${D.dests.map((d,di)=>`<tr><td>${d.name}</td>${D.items.map((it,ii)=>`<td>${g.need[di][ii]?pct(Math.min(1,g.got[di][ii]/g.need[di][ii])):"-"}</td>`).join("")}</tr>`).join("")}</table>
+ <div class="kpi" style="margin-top:10px"><span>Average coverage <b>${pct(g.cov)}</b></span><span>Essentials (priority 9+) coverage <b>${pct(g.ess)}</b></span></div></section>`;
+ h+=`<section><b>Greedy vs random loading</b><table><tr><th>Measure</th><th>Greedy</th><th>Random (avg of 300)</th></tr>
+ <tr><td>Total priority score</td><td class="good">${g.score.toLocaleString()}</td><td>${Math.round(r.score).toLocaleString()}</td></tr>
+ <tr><td>Essentials coverage</td><td class="good">${pct(g.ess)}</td><td>${pct(r.ess)}</td></tr>
+ <tr><td>Average coverage</td><td>${pct(g.cov)}</td><td>${pct(r.cov)}</td></tr>
+ <tr><td>Capacity utilization</td><td>${pct(g.util)}</td><td>${pct(r.util)}</td></tr></table>
+ <p>Score improvement over random: <b class="good">${gain}</b></p></section>`;
+ document.getElementById("out").innerHTML=h;
+}
+
+function runTests(){
+ let h=`<h2>Scenario tests: greedy vs random</h2><section><table><tr><th>Scenario</th><th>Greedy score</th><th>Random score</th><th>Improvement</th><th>Essentials (greedy)</th><th>Essentials (random)</th><th>Utilization (greedy / random)</th></tr>`;
+ Object.keys(SCEN).forEach(k=>{
+  const g=solve(SCEN[k],"greedy"),r=avgRandom(SCEN[k]);
+  h+=`<tr><td>${k}</td><td>${g.score.toLocaleString()}</td><td>${Math.round(r.score).toLocaleString()}</td><td class="good">${r.score?((g.score-r.score)/r.score*100).toFixed(1)+"%":"n/a"}</td><td>${pct(g.ess)}</td><td>${pct(r.ess)}</td><td>${pct(g.util)} / ${pct(r.util)}</td></tr>`;
+ });
+ document.getElementById("tests").innerHTML=h+"</table></section>";
+}
+
+S=clone(SCEN.Flood);draw();run();
+</script>
+</body>
+</html>
